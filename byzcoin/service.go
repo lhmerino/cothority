@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"go.dedis.ch/cothority/v4"
 	"go.dedis.ch/cothority/v4/blscosi/protocol"
 	"go.dedis.ch/cothority/v4/byzcoin/trie"
@@ -31,7 +32,6 @@ import (
 	"go.dedis.ch/protobuf"
 	"go.etcd.io/bbolt"
 	"golang.org/x/xerrors"
-	uuid "gopkg.in/satori/go.uuid.v1"
 )
 
 var pairingSuite = suites.MustFind("bn256.adapter").(*pairing.SuiteBn256)
@@ -2417,8 +2417,7 @@ func (s *Service) getTxs(leader *network.ServerIdentity, roster *onet.Roster, sc
 
 	// First we check if we are up-to-date with this chain and catch up
 	// if necessary.
-	_, doCatchUp := s.skService().WaitBlock(scID, latestID)
-	if doCatchUp {
+	if !s.skService().ChainHasBlock(scID, latestID) {
 		// The function will prevent multiple request to catch up so we can securely call it here
 		err := s.catchupFromID(roster, scID, latestID)
 		if err != nil {
@@ -2472,6 +2471,7 @@ func loadNonceFromTxs(txs TxResults) ([]byte, error) {
 func (s *Service) TestClose() {
 	s.closedMutex.Lock()
 	if !s.closed {
+		s.skService().TestClose()
 		s.closed = true
 		s.closedMutex.Unlock()
 		s.cleanupGoroutines()
@@ -2481,8 +2481,17 @@ func (s *Service) TestClose() {
 	}
 }
 
+// TestRestart activates a test that has been closed using TestClose. This
+// allows to simulate restarting of nodes in the tests.
+func (s *Service) TestRestart() error {
+	if err := s.startAllChains(); err != nil {
+		return err
+	}
+	return s.skService().TestRestart()
+}
+
 func (s *Service) cleanupGoroutines() {
-	log.Lvl1(s.ServerIdentity(), "closing go-routines")
+	log.Lvl1(s.ServerIdentity(), "closing go-routines 1")
 	s.heartbeats.closeAll()
 	s.closeLeaderMonitorChan <- true
 	s.viewChangeMan.closeAll()
@@ -2494,7 +2503,9 @@ func (s *Service) cleanupGoroutines() {
 		delete(s.pollChan, k)
 	}
 	s.pollChanMut.Unlock()
+	log.Lvl1(s.ServerIdentity(), "closing go-routines 2")
 	s.pollChanWG.Wait()
+	log.Lvl1(s.ServerIdentity(), "closing go-routines 3")
 }
 
 func (s *Service) monitorLeaderFailure() {
