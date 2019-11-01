@@ -79,6 +79,8 @@ export default class Proof extends Message<Proof> {
         registerMessage("byzcoin.Proof", Proof, InclusionProof, SkipBlock, ForwardLink);
     }
 
+    static skipVerify = false;
+
     readonly inclusionproof: InclusionProof;
     readonly latest: SkipBlock;
     readonly links: ForwardLink[];
@@ -139,6 +141,10 @@ export default class Proof extends Message<Proof> {
      * @deprecated use verifyFrom for a complete verification
      */
     verify(id: InstanceID): Error {
+        if (Proof.skipVerify){
+            return null;
+        }
+
         if (!this.latest.computeHash().equals(this.latest.hash)) {
             return new Error("invalid latest block");
         }
